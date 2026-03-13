@@ -1,0 +1,7 @@
+data/
+logs/
+model/
+hand_landmarker.task
+__pycache__/
+*.pyc
+firebase_credentials.json
