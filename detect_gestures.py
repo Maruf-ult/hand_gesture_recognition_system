@@ -17,20 +17,36 @@ print(f"✅ Model: {md['model_name']} | Accuracy: {md['accuracy']*100:.1f}%")
 detector = HandDetector(staticMode=False, maxHands=1,
                         modelComplexity=1, detectionCon=0.7, minTrackCon=0.6)
 
-def extract_features(lm_list):
-    coords=np.array([[lm[0],lm[1],lm[2]] for lm in lm_list],dtype=float)
-    coords[:,0]/=1280; coords[:,1]/=720
-    wrist=coords[0]; norm=coords-wrist
-    dists=np.linalg.norm(norm[[4,8,12,16,20]],axis=1)
-    def angle(a,b,c):
-        ba=a-b; bc=c-b
-        cos=np.dot(ba,bc)/(np.linalg.norm(ba)*np.linalg.norm(bc)+1e-6)
-        return np.degrees(np.arccos(np.clip(cos,-1,1)))
-    triplets=[(0,1,2),(1,2,3),(2,3,4),(0,5,6),(5,6,7),(6,7,8),
-              (0,9,10),(9,10,11),(10,11,12),(0,13,14),(13,14,15),
-              (14,15,16),(0,17,18),(17,18,19),(18,19,20)]
-    angles=np.array([angle(coords[a],coords[b],coords[c]) for a,b,c in triplets])
-    return np.concatenate([norm.flatten(),dists,angles])
+def extract_features(lm_list, hand_type="Right"):
+    coords = np.array([[lm[0], lm[1], lm[2]] for lm in lm_list], dtype=float)
+    coords[:, 0] /= 1280.0
+    coords[:, 1] /= 720.0
+    wrist = coords[0].copy()
+    norm  = coords - wrist
+    wrist_x = wrist[0]
+    wrist_y = wrist[1]
+    
+    # Anatomical handedness check (cross product of Wrist->Middle and Wrist->Pinky)
+    # Independent of frame flipping or MediaPipe hand_type label!
+    v_mid = norm[9]
+    v_pnk = norm[17]
+    cp = v_mid[0] * v_pnk[1] - v_mid[1] * v_pnk[0]
+    if cp < 0:
+        norm[:, 0] = -norm[:, 0]
+        wrist_x = 1.0 - wrist_x
+
+    dists = np.linalg.norm(norm[[4,8,12,16,20]], axis=1)
+    def angle(a, b, c):
+        ba = a-b; bc = c-b
+        cos = np.dot(ba,bc)/(np.linalg.norm(ba)*np.linalg.norm(bc)+1e-6)
+        return np.degrees(np.arccos(np.clip(cos,-1.0,1.0)))
+    triplets = [(0,1,2),(1,2,3),(2,3,4),(0,5,6),(5,6,7),(6,7,8),
+                (0,9,10),(9,10,11),(10,11,12),(0,13,14),(13,14,15),
+                (14,15,16),(0,17,18),(17,18,19),(18,19,20)]
+    angles = np.array([angle(coords[a],coords[b],coords[c]) for a,b,c in triplets])
+    wrist_pos = np.array([wrist_x, wrist_y])
+    return np.concatenate([norm.flatten(), dists, angles, wrist_pos])
+
 
 PRIORITY_COLORS={"CRITICAL":(0,0,220),"HIGH":(0,140,255),
                  "MEDIUM":(0,180,100),"LOW":(100,180,100)}
@@ -55,10 +71,12 @@ while True:
     raw=""; conf=0.0
     if hands:
         lm=hands[0]["lmList"]
-        feat=scaler.transform([extract_features(lm)])
+        hand_type=hands[0].get("type","Right")
+        feat=scaler.transform([extract_features(lm, hand_type)])
         proba=model.predict_proba(feat)[0]
         pred=np.argmax(proba); conf=proba[pred]
         if conf>=CONFIDENCE_THRESHOLD: raw=GESTURES[pred]
+
 
     pred_buffer.append(raw)
     if len(pred_buffer)==SMOOTHING_BUFFER:

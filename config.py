@@ -33,8 +33,9 @@ GESTURE_INFO = {
     "two_fingers_up":   {"label": "NEED REST",        "priority": "MEDIUM",   "color": (100, 100, 220)},
 }
 
-# Dynamic gestures (require motion)
-DYNAMIC_GESTURES = ["slow_wave"]
+# Dynamic gestures (require motion) - set to empty to treat all gestures as simple static postures
+DYNAMIC_GESTURES = []
+
 
 # Gestures that always trigger urgent notification
 CRITICAL_GESTURES = ["open_palm", "closed_fist", "hand_on_chest"]

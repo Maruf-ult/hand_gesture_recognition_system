@@ -1,0 +1,7 @@
+opencv-python
+cvzone
+mediapipe
+scikit-learn
+matplotlib
+seaborn
+firebase-admin

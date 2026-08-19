@@ -19,22 +19,37 @@ for g in GESTURES:
         os.makedirs(os.path.join(DATA_DIR, g + "_seq"), exist_ok=True)
 os.makedirs("logs", exist_ok=True)
 
-def extract_features(lm_list):
+def extract_features(lm_list, hand_type="Right"):
     coords = np.array([[lm[0], lm[1], lm[2]] for lm in lm_list], dtype=float)
-    coords[:, 0] /= 1280
-    coords[:, 1] /= 720
-    wrist = coords[0]
+    coords[:, 0] /= 1280.0
+    coords[:, 1] /= 720.0
+    wrist = coords[0].copy()
     norm  = coords - wrist
+    wrist_x = wrist[0]
+    wrist_y = wrist[1]
+    
+    # Anatomical handedness check (cross product of Wrist->Middle and Wrist->Pinky)
+    # Independent of frame flipping or MediaPipe hand_type label!
+    v_mid = norm[9]
+    v_pnk = norm[17]
+    cp = v_mid[0] * v_pnk[1] - v_mid[1] * v_pnk[0]
+    if cp < 0:
+        norm[:, 0] = -norm[:, 0]
+        wrist_x = 1.0 - wrist_x
+
     dists = np.linalg.norm(norm[[4,8,12,16,20]], axis=1)
     def angle(a, b, c):
         ba = a-b; bc = c-b
         cos = np.dot(ba,bc)/(np.linalg.norm(ba)*np.linalg.norm(bc)+1e-6)
-        return np.degrees(np.arccos(np.clip(cos,-1,1)))
+        return np.degrees(np.arccos(np.clip(cos,-1.0,1.0)))
     triplets = [(0,1,2),(1,2,3),(2,3,4),(0,5,6),(5,6,7),(6,7,8),
                 (0,9,10),(9,10,11),(10,11,12),(0,13,14),(13,14,15),
                 (14,15,16),(0,17,18),(17,18,19),(18,19,20)]
     angles = np.array([angle(coords[a],coords[b],coords[c]) for a,b,c in triplets])
-    return np.concatenate([norm.flatten(), dists, angles])
+    wrist_pos = np.array([wrist_x, wrist_y])
+    return np.concatenate([norm.flatten(), dists, angles, wrist_pos])
+
+
 
 def get_hand_crop(frame, lm_list):
     h, w = frame.shape[:2]
@@ -54,7 +69,8 @@ INSTRUCTIONS = {
     "thumbs_up":        "Make fist — stick thumb straight up",
     "thumbs_down":      "Make fist — point thumb straight down",
     "hand_on_head":     "Place open hand flat on top of your head",
-    "slow_wave":        "Raise open hand — wave slowly left and right",
+    "slow_wave":        "Raise open hand — hold steadily with fingers together",
+
     "two_fingers_up":   "Make fist — raise index + middle finger together",
 }
 
@@ -107,7 +123,8 @@ for gesture in GESTURES:
                 frame = cv2.flip(frame, 1)
                 hands, frame = detector.findHands(frame, draw=True, flipType=False)
                 if hands:
-                    sequence.append(extract_features(hands[0]["lmList"]).tolist())
+                    hand_type = hands[0].get("type", "Right")
+                    sequence.append(extract_features(hands[0]["lmList"], hand_type).tolist())
                 h,w=frame.shape[:2]; bar=int(len(sequence)/SEQUENCE_LENGTH*400)
                 cv2.rectangle(frame,(0,0),(w,60),(15,15,15),-1)
                 cv2.putText(frame,f"{gesture.upper().replace('_',' ')} Seq {seqs+1}/{target}",
@@ -128,11 +145,13 @@ for gesture in GESTURES:
             h,w = frame.shape[:2]
             if hands:
                 lm = hands[0]["lmList"]
+                hand_type = hands[0].get("type", "Right")
                 crop = get_hand_crop(frame, lm)
                 if crop.size > 0:
                     cv2.imwrite(os.path.join(save_path,f"{count}.jpg"), crop)
-                features_list.append(extract_features(lm).tolist())
+                features_list.append(extract_features(lm, hand_type).tolist())
                 count+=1
+
             bar=int(count/SAMPLES_PER_GESTURE*400)
             cv2.rectangle(frame,(0,0),(w,60),(15,15,15),-1)
             cv2.putText(frame,f"{gesture.upper().replace('_',' ')} [{count}/{SAMPLES_PER_GESTURE}]",
